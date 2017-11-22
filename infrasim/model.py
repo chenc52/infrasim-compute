@@ -1187,9 +1187,9 @@ class CBackendStorage(CElement):
             self.add_option(controller_obj.get_option())
 
 
-class CNetwork(CElement):
+class CNIC(CElement):
     def __init__(self, network_info):
-        super(CNetwork, self).__init__()
+        super(CNIC, self).__init__()
         self.__network = network_info
         self.__network_list = []
         self.__network_mode = None
@@ -1197,6 +1197,7 @@ class CNetwork(CElement):
         self.__nic_name = None
         self.__mac_address = None
         self.__index = 0
+        self.__bus = None
 
     def set_index(self, index):
         self.__index = index
@@ -1243,6 +1244,7 @@ class CNetwork(CElement):
         self.__bridge_name = self.__network.get('network_name')
         self.__nic_name = self.__network.get('device')
         self.__mac_address = self.__network.get('mac')
+        self.__bus = self.__network.get('bus')
 
     def handle_parms(self):
         if self.__network_mode == "bridge":
@@ -1270,6 +1272,9 @@ class CNetwork(CElement):
         nic_option = ",".join(["{}".format(self.__nic_name),
                                "netdev=netdev{}".format(self.__index),
                                "mac={}".format(self.__mac_address)])
+        if self.__bus is not None:
+           nic_option = ",".join(["{}".format(nic_option),
+                                 "bus={}".format(self.__bus)])
 
         network_option = " ".join(["-netdev {}".format(netdev_option),
                                    "-device {}".format(nic_option)])
@@ -1294,7 +1299,7 @@ class CBackendNetwork(CElement):
     def init(self):
         index = 0
         for network in self.__backend_network_list:
-            network_obj = CNetwork(network)
+            network_obj = CNIC(network)
             network_obj.logger = self.logger
             network_obj.set_index(index)
             self.__network_list.append(network_obj)
@@ -1365,6 +1370,180 @@ class CIPMI(CElement):
                                 "-device {}".format(bmc_option),
                                 "-device {}".format(interface_option)])
         self.add_option(ipmi_option)
+
+
+class CPCIRootport(CElement):
+    def __init__(self, rootport_info):
+        super(CPCIRootport, self).__init__()
+        self.__rootport_info = rootport_info
+        self.__device = None
+        self.__chassis = None
+        self.__slot = None
+        self.id = None
+        self.bus = None
+        self.rootport_option = None
+
+    def set_option(self):
+        self.rootport_option = " -device {},id={},bus={},chassis={},slot={} ".format(
+                                                           self.__device,
+                                                           self.id,
+                                                           self.bus,
+                                                           self.__chassis,
+                                                           self.__slot)
+
+
+    def precheck(self):
+        if self.__rootport_info is None:
+            self.logger.exception("[PCIRootport] Rootport device is required.")
+            raise ArgsNotCorrect("Rootport device is required.")
+
+    def init(self):
+        self.logger.info("Root port start ")
+        self.__device = self.__rootport_info.get('device')
+        self.id = self.__rootport_info.get('id')
+        self.bus = self.__rootport_info.get('bus')
+        self.__chassis = self.__rootport_info.get('chassis')
+        self.__slot = self.__rootport_info.get('slot')
+        self.logger.info("Root port end ")
+
+
+class CPCIUpstream(CElement):
+    def __init__(self, upstream_info):
+        super(CPCIUpstream, self).__init__()
+        self.__upstream_info = upstream_info
+        self.bus = None
+        self.id = None
+        self.__device = None
+        self.upstream_option = None
+
+    def set_option(self):
+        self.upstream_option = " -device {},id={},bus={} ".format(
+                                                           self.__device,
+                                                           self.id,
+                                                           self.bus)
+
+    def precheck(self):
+        if self.__upstream_info is None:
+            self.logger.exception("[PCIUpstream] Upstream device is required.")
+            raise ArgsNotCorrect("upstream device is required.")
+
+    def init(self):
+        self.__device = self.__upstream_info.get('device')
+        self.bus = self.__upstream_info.get('bus')
+        self.id = self.__upstream_info.get('id')
+
+
+class CPCIDownstream(CElement):
+    def __init__(self, downstream_info):
+        super(CPCIDownstream, self).__init__()
+        self.__downstream_info = downstream_info
+        self.bus = None
+        self.id = None
+        self.__slot = None
+        self.addr = None
+        self.__device = None
+        self.__chassis = None
+        self.downstream_option = None
+
+    def set_option(self):
+        self.downstream_option = " -device {},id={},bus={},chassis={},slot={}".format(
+                                                            self.__device,
+                                                            self.id,
+                                                            self.bus,
+                                                            self.__chassis,
+                                                            self.__slot)
+
+    def precheck(self):
+        if self.__downstream_info is None:
+            self.logger.exception("[PCIDownstream] Downstream device is required.")
+            raise ArgsNotCorrect("downstream device is required.")
+
+    def init(self):
+        self.__device = self.__downstream_info.get('device')
+        self.__chassis = self.__downstream_info.get('chassis')
+        self.__slot = self.__downstream_info.get('slot')
+        self.addr = self.__downstream_info.get('addr')
+        self.bus = self.__downstream_info.get('bus')
+        self.id = self.__downstream_info.get('id')
+
+
+class CPCITopology(CElement):
+    def __init__(self, pci_topology):
+        super(CPCITopology, self).__init__()
+        self.__pci_topology = pci_topology
+        self.__pci_option = None
+        self.__component_list = []
+
+    def set_own_option(self, option, position):
+        if self.__pci_option is None:
+            self.__pci_option = option
+            return
+
+        if position is True:
+            self.__pci_option = " ".join(["{}".format(self.__pci_option),
+                                         "{}".format(option)])
+        else:
+            self.__pci_option = " ".join(["{}".format(option),
+                                         "{}".format(self.__pci_option)])
+
+    def build_topo(self, component):
+        list_tmp = []
+        for component_tmp in self.__component_list:
+            if component_tmp["bus"] == component["id"]:
+                list_tmp.append(component_tmp)
+
+        if len(list_tmp):
+            for component_tmp in list_tmp:
+                self.build_topo(component_tmp)
+
+        self.set_own_option(component["option"], False)
+        return
+
+    def precheck(self):
+        if self.__pci_topology is None:
+            self.logger.exception("[PCITopology] PCI topology is required.")
+            raise ArgsNotCorrect("pci topology is required.")
+
+    def init(self):
+        self.logger.info("topology start ")
+        self.__component_list.append({ 'bus' :-1 , 'id' : 'pcie.0', 'option' : ""})
+        for root_port in self.__pci_topology['root_port']:
+            root_port_obj = CPCIRootport(root_port)
+            root_port_obj.init()
+            root_port_obj.set_option()
+            pick_info_dic = {}
+            pick_info_dic["bus"] = root_port_obj.bus
+            pick_info_dic["id"] = root_port_obj.id
+            pick_info_dic["option"] = root_port_obj.rootport_option
+            self.__component_list.append(pick_info_dic)
+
+        switch = self.__pci_topology['switch']
+
+        for switch_element in switch:
+            for upstream in switch_element.get('upstream',[]):
+                upstream_obj = CPCIUpstream(upstream)
+                upstream_obj.init()
+                upstream_obj.set_option()
+                pick_info_dic = {}
+                pick_info_dic["bus"] = upstream_obj.bus
+                pick_info_dic["id"] = upstream_obj.id
+                pick_info_dic["option"] = upstream_obj.upstream_option
+                self.__component_list.append(pick_info_dic)
+
+            for downstream in switch_element.get('downstream',[]):
+                downstream_obj = CPCIDownstream(downstream)
+                downstream_obj.init()
+                downstream_obj.set_option()
+                pick_info_dic = {}
+                pick_info_dic["bus"] = downstream_obj.bus
+                pick_info_dic["id"] = downstream_obj.id
+                pick_info_dic["option"] = downstream_obj.downstream_option
+                self.__component_list.append(pick_info_dic)
+        self.logger.info("topology end")
+
+    def handle_parms(self):
+        self.build_topo(self.__component_list[0])
+        self.add_option(self.__pci_option)
 
 
 class CPCIBridge(CElement):
@@ -1993,6 +2172,11 @@ class CCompute(Task, CElement):
             pci_topology_manager_obj = CPCITopologyManager(self.__compute['pci_bridge_topology'])
             pci_topology_manager_obj.logger = self.logger
             self.__element_list.append(pci_topology_manager_obj)
+
+        if 'pci_topology' in self.__compute:
+            pci_topology_obj = CPCITopology(self.__compute['pci_topology'])
+            pci_topology_obj.logger = self.logger
+            self.__element_list.append(pci_topology_obj)
 
         backend_storage_obj = CBackendStorage(self.__compute['storage_backend'])
         backend_storage_obj.logger = self.logger
