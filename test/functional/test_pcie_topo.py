@@ -93,7 +93,11 @@ def start_node(node_type):
                     "size": 8,
                     "file": test_img_file
                 }
-            ]
+            ]},{
+            "bus": "downstream4",
+            "type": "nvme",
+            "cmb_size": 256,
+            "drives": [{"size": 8}]
         }]
 
     conf["compute"]["networks"] = [{
@@ -250,6 +254,18 @@ class test_pcie_topo(unittest.TestCase):
     def tearDownClass(cls):
         stop_node()
 
+    @staticmethod
+    def get_cfg_list(keywd):
+        pcie_topo_list = run_cmd("lspci").split('\n')
+        bus_list = [x.split(" ")[0].split(":")[0] for x in pcie_topo_list if keywd in x]
+        rp_cfg_list = conf["compute"]["pcie_topology"]["root_port"]
+        downstream_cfg_list = []
+        for sw in conf["compute"]["pcie_topology"]["switch"]:
+            for ds in sw["downstream"]:
+                downstream_cfg_list.append(ds)
+
+        return bus_list, downstream_cfg_list + rp_cfg_list
+
     def test_pcie_bridge(self):
         # check pcie topology
         pcie_topo_list = run_cmd("lspci")
@@ -281,18 +297,22 @@ class test_pcie_topo(unittest.TestCase):
 
     def test_nic_bdf(self):
         # check nic bdf match config
-        pcie_topo_list = run_cmd("lspci").split('\n')
-        nic_bus_list = [x.split(" ")[0].split(":")[0] for x in pcie_topo_list if 'Ethernet' in x]
-        rp_cfg_list = conf["compute"]["pcie_topology"]["root_port"]
-        downstream_cfg_list = []
-        for sw in conf["compute"]["pcie_topology"]["switch"]:
-            for ds in sw["downstream"]:
-                downstream_cfg_list.append(ds)
+        nic_bus_list, cfg_list = self.get_cfg_list('Ethernet')
         nic_cfg_list = conf["compute"]["networks"]
         nic_cfg_bus_list = []
-        for rp in rp_cfg_list + downstream_cfg_list:
+        for rp in cfg_list:
             for nic in nic_cfg_list:
                 if nic["bus"] == rp["id"]:
                     nic_cfg_bus_list.append(hex(rp["sec_bus"])[2:])
         assert set(nic_bus_list) == set(nic_cfg_bus_list)
 
+    def test_nvme_bdf(self):
+        # check nvme bdf match config
+        nvme_bus_list, cfg_list = self.get_cfg_list('f117')
+        nvme_cfg_list = [x for x in conf["compute"]["storage_backend"] if x['type']=='nvme']
+        nvme_cfg_bus_list = []
+        for rp in cfg_list:
+            for nvme in nvme_cfg_list:
+                if nvme["bus"] == rp["id"]:
+                    nvme_cfg_bus_list.append(hex(rp["sec_bus"])[2:])
+        assert set(nvme_bus_list) == set(nvme_cfg_bus_list)
