@@ -20,23 +20,25 @@ test_img_file = "/tmp/kcs.img"
 cmd_prefix = 'ipmitool -H 127.0.0.1 -U admin -P admin raw '
 
 get_vpd_cmd = cmd_prefix + '0x30 0xE1 0x0a 0x00 0x00 0x4c'
-get_vpd_error_cmd = cmd_prefix + '0x30 0xE1 0x0a 0x00 0x00 0x4f'
+get_vpd_error_cmd = cmd_prefix + '0x30 0xE1 0x0a 0x00 0x00'
+get_drive_healthdata_cmd = cmd_prefix + '0x30 0xE3 0x0a'
+get_drive_healthdata_error_cmd = cmd_prefix + '0x30 0xE3'
+get_lan_interface_link_status_cmd = cmd_prefix + '0x30 0x7B 0x01'
+get_lan_interface_link_status_error_cmd = cmd_prefix + '0x30 0x7B'
 
 
-def load_oem_data(oem_data_file):
-    MD5 = '0a4885a2f3d72e7cd0508c0fc6445aae'
-    DOWNLOAD_URL = 'https://raw.eos2git.cec.lab.emc.com/InfraSIM/emu_data/master/warnado/warnado_pp_bmc_a/oem_data.json?token=AAAKUo37ecNyHS-YPgDikxwUYx5omC5sks5aZabPwA%3D%3D'
+def load_oem_data(oem_file_path):
+    DOWNLOAD_URL = 'https://raw.eos2git.cec.lab.emc.com/InfraSIM/emu_data/master/warnado/warnado_pp_bmc_a/oem_data.json'
+    HEAD_auth = 'Authorization: token 64f1ce89f747be26a259a39cdc524323b2140985'
+    HEAD_accept = 'Accept: application/vnd.github.v4.raw'
     try:
-        helper.fetch_image(DOWNLOAD_URL, MD5, oem_data_file)
-    except InfraSimError, e:
-        print e.value
+        os.system("curl -H '{auth}' -H '{accept}' -L {url} -o {path}".format(auth = HEAD_auth,
+                                                           accept = HEAD_accept,
+                                                           url = DOWNLOAD_URL,
+                                                           path = oem_file_path))
+    except OSError, e:
+        print "Download data file failed!"
         assert False
-    '''
-    info = urllib.urlopen(url)
-    info = info.read()
-    with open('oem_data.json', 'w') as f:
-        f.write(info)
-    '''
 
 def run_command(cmd="", shell=True, stdin=None, stdout=None, stderr=None):
     child = subprocess.Popen(cmd, shell=shell, stdout=stdout, stderr=stderr)
@@ -84,7 +86,7 @@ class test_ipmi_oem_command(unittest.TestCase):
         node.stop()
         node.terminate_workspace()
 
-    def test_get_drive_healthdata(self):
+    def test_get_vpd(self):
         try:
             returncode, output = run_command(get_vpd_cmd,
                                              stdout=subprocess.PIPE,
@@ -93,11 +95,53 @@ class test_ipmi_oem_command(unittest.TestCase):
         except:
             assert False
 
-    def test_get_drive_healthdata_error(self):
+    def test_get_vpd_error(self):
         try:
             returncode, output = run_command(get_vpd_error_cmd,
                                              stdout=subprocess.PIPE,
                                              stderr=subprocess.PIPE)
             self.assertEqual(returncode, 1)
+            # Request data length invalid
+            self.assertIn('rsp=0xc7', output[1])
+        except:
+            assert False
+
+    def test_get_drive_healthdata(self):
+        try:
+            returncode, output = run_command(get_drive_healthdata_cmd,
+                                             stdout=subprocess.PIPE,
+                                             stderr=subprocess.PIPE)
+            self.assertEqual(returncode, 0)
+        except:
+            assert False
+
+    def test_get_drive_healthdata_error(self):
+        try:
+            returncode, output = run_command(get_drive_healthdata_error_cmd,
+                                             stdout=subprocess.PIPE,
+                                             stderr=subprocess.PIPE)
+            self.assertEqual(returncode, 1)
+            # Request data length invalid
+            self.assertIn('rsp=0xc7', output[1])
+        except:
+            assert False
+
+    def test_get_lan_interface_link_status(self):
+        try:
+            returncode, output = run_command(get_lan_interface_link_status_cmd,
+                                             stdout=subprocess.PIPE,
+                                             stderr=subprocess.PIPE)
+            self.assertEqual(returncode, 0)
+        except:
+            assert False
+
+    def test_get_lan_interface_link_status_error(self):
+        try:
+            returncode, output = run_command(get_lan_interface_link_status_error_cmd,
+                                             stdout=subprocess.PIPE,
+                                             stderr=subprocess.PIPE)
+            self.assertEqual(returncode, 1)
+            # Request data length invalid
+            self.assertIn('rsp=0xc7', output[1])
         except:
             assert False
